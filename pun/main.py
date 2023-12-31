@@ -257,17 +257,43 @@ class MatchDowngrader(cst.CSTTransformer):
                 # TODO: make this more ergonomic
                 self.subject_stack.pop()
 
-    def visit_MatchSequenceElement(self, node: cst.MatchSequenceElement) -> bool:
-        if id(node) in self.ignored_nodes:
-            return False
+    def visit_MatchOr(self, node: cst.MatchOr) -> None:
+        pre_condition = self.condition
+        ors: list[cst.BaseExpression] = []
 
-        return True
+        for pattern in node.patterns:
+            pattern.visit(self)
+            self.ignored_nodes.add(id(pattern))
+
+            assert self.condition
+
+            or_expr = self.parenthesize(
+                self.condition,
+                only_when_needed=True,
+                ignore_and_exprs=False,
+            )
+            ors.append(or_expr)
+
+            self.condition = None
+
+        or_chain = cst.BooleanOperation(left=ors[0], operator=cst.Or(), right=ors[1])
+
+        for _or in ors[2:]:
+            or_chain = or_chain.with_changes(left=or_chain, operator=cst.Or(), right=_or)
+
+        if pre_condition:
+            self.condition = self.make_and_expr(pre_condition, or_chain)
+        else:
+            self.condition = or_chain
+
+    def visit_MatchOrElement(self, node: cst.MatchOrElement) -> bool:
+        return id(node) not in self.ignored_nodes
+
+    def visit_MatchSequenceElement(self, node: cst.MatchSequenceElement) -> bool:
+        return id(node) not in self.ignored_nodes
 
     def visit_MatchKeywordElement(self, node: cst.MatchKeywordElement) -> bool:
-        if id(node) in self.ignored_nodes:
-            return False
-
-        return True
+        return id(node) not in self.ignored_nodes
 
     def leave_Match(  # type: ignore[override]
         self, original_node: cst.Match, updated_node: cst.Match
@@ -312,14 +338,20 @@ class MatchDowngrader(cst.CSTTransformer):
 
     @staticmethod
     def parenthesize(
-        expr: cst.BaseExpression, *, only_when_needed: bool = False
+        expr: cst.BaseExpression,
+        *,
+        only_when_needed: bool = False,
+        ignore_and_exprs: bool = True,
     ) -> cst.BaseExpression:
         if only_when_needed:
             if expr.lpar:
                 return expr
 
             match expr:
-                case cst.Call() | cst.Subscript() | cst.BooleanOperation(operator=cst.And()):
+                case cst.Call() | cst.Subscript():
+                    return expr
+
+                case cst.BooleanOperation(operator=cst.And()) if ignore_and_exprs:
                     return expr
 
         return expr.with_changes(lpar=[cst.LeftParen()], rpar=[cst.RightParen()])

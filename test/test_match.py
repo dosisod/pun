@@ -34,6 +34,8 @@ match 1:
         pass
     case C(x=1):
         pass
+    case 1 | 2 | 3:
+        pass
     case _:
         pass
 """.strip()
@@ -67,6 +69,8 @@ elif isinstance(__match_subject, C) and (__match_args := getattr(__match_subject
 elif isinstance(__match_subject, C) and (__match_args := getattr(__match_subject, "__match_args__", None)) and isinstance(__match_args, tuple) and (len(__match_args) >= 2) and hasattr(__match_subject, __match_args[0]) and (__match_subject1 := getattr(__match_subject, __match_args[0])) and (__match_subject1 == 1) and hasattr(__match_subject, __match_args[1]) and (__match_subject2 := getattr(__match_subject, __match_args[1])) and (__match_subject2 == 2):
     pass
 elif isinstance(__match_subject, C) and hasattr(__match_subject, "x") and (__match_subject1 := getattr(__match_subject, "x")) and (__match_subject1 == 1):
+    pass
+elif (__match_subject == 1) or (__match_subject == 2) or (__match_subject == 3):
     pass
 elif True:
     pass
