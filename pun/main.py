@@ -368,6 +368,7 @@ class BundlerTransformer(cst.CSTTransformer):
         self.future_imports = set[str]()
         self.is_top_level_module = True
         self.loaded_files = loaded_files or set()
+        self.is_inside_class = False
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         stmts = []
@@ -514,10 +515,48 @@ class BundlerTransformer(cst.CSTTransformer):
             body=body,
         )
 
-    def leave_Match(  # type: ignore[override]  # noqa: PLR6301
+    def leave_Match(  # type: ignore[override]
         self, original_node: cst.Match, updated_node: cst.Match
     ) -> cst.FlattenSentinel[cst.CSTNode]:
         return cast(cst.FlattenSentinel[cst.CSTNode], updated_node.visit(MatchDowngrader()))
+
+    def visit_ClassDef(self, node: cst.ClassDef) -> None:
+        self.is_inside_class = True
+
+    def leave_ClassDef(
+        self, original_node: cst.ClassDef, updated_node: cst.ClassDef
+    ) -> cst.ClassDef:
+        self.is_inside_class = False
+
+        return updated_node
+
+    def leave_AnnAssign(
+        self, original_node: cst.AnnAssign, updated_node: cst.AnnAssign
+    ) -> cst.AnnAssign | cst.Assign | cst.RemovalSentinel:
+        # Ignore annotated assignments directly inside class bodies in order to support dataclasses
+        if self.is_inside_class:
+            return updated_node
+
+        if not updated_node.value:
+            return cst.RemoveFromParent()
+
+        return cst.Assign(
+            targets=[cst.AssignTarget(target=updated_node.target)],
+            value=updated_node.value,
+            semicolon=updated_node.semicolon,
+        )
+
+    def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
+        # set to false so that annotated assignments inside functions are stripped
+        self.is_inside_class = False
+
+    def leave_Param(self, original_node: cst.Param, updated_node: cst.Param) -> cst.Param:
+        return updated_node.with_changes(annotation=None)
+
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
+        return updated_node.with_changes(returns=None)
 
     def get_string_name(self, node: cst.CSTNode) -> str:
         if isinstance(node, cst.Name):
